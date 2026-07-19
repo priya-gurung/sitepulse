@@ -1,0 +1,24 @@
+DESCRIPTION >
+    Unique visitors grouped by country for a site/date range.
+    Consumed exclusively by the Dashboard API Server.
+
+NODE ranked
+SQL >
+    %
+    SELECT
+        country,
+        uniqExact(visitor_hash) AS unique_visitors,
+        count() AS events
+    FROM analytics_events
+    WHERE site_id = {{ String(site_id, required=True) }}
+      AND country IS NOT NULL
+      {% if defined(date_from) %}
+      AND timestamp >= {{ DateTime(date_from) }}
+      {% end %}
+      {% if defined(date_to) %}
+      AND timestamp <= {{ DateTime(date_to) }}
+      {% end %}
+    GROUP BY country
+    ORDER BY unique_visitors DESC
+
+TYPE endpoint

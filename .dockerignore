@@ -1,0 +1,66 @@
+# ==========================================
+# 1. Dependency Directories (Heavy / Node & Python)
+# ==========================================
+**/node_modules/
+**/.venv/
+**/venv/
+**/env/
+**/.pytest_cache/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ==========================================
+# 2. Build Outputs and Caches (Massive I/O culprits)
+# ==========================================
+**/.next/
+**/dist/
+**/build/
+**/out/
+**/.turbo/
+**/.cache/
+*.egg-info/
+
+# ==========================================
+# 3. Environment Secrets and Local Configurations
+# ==========================================
+**/.env
+**/.env.local
+**/.env.*.local
+**/.env.production
+**/.env.development
+**/.env.test
+
+# ==========================================
+# 4. Git and Version Control Metadatas
+# ==========================================
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# ==========================================
+# 5. OS and Editor Overhead Files
+# ==========================================
+**/.DS_Store
+**/Thumbs.db
+**/.vscode/
+**/.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# ==========================================
+# 6. Log Streams and Temporary Dumps
+# ==========================================
+*.log
+**/npm-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+**/.npm/
+**/.yarn/
+tmp/
+logs/

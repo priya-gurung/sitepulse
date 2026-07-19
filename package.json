@@ -1,0 +1,35 @@
+{
+  "name": "sitepulse",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Privacy-first website analytics platform (hybrid OLTP/OLAP)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev:ingestion": "npm run dev -w apps/ingestion-server",
+    "dev:dashboard": "npm run dev -w apps/dashboard-server",
+    "dev:worker": "npm run dev -w apps/worker",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "prisma:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "prisma:studio": "prisma studio --schema prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.14.15",
+    "@types/ua-parser-js": "^0.7.39",
+    "pm2": "^7.0.3",
+    "prisma": "^5.18.0",
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3"
+  }
+}

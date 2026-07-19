@@ -1,0 +1,21 @@
+DESCRIPTION >
+    High-level overview metrics for a site over a date range.
+    Consumed exclusively by the Dashboard API Server.
+
+NODE overview_calc
+SQL >
+    %
+    SELECT
+        countIf(type = 'pageview') AS pageviews,
+        uniqExact(visitor_hash) AS unique_visitors,
+        uniqExact(session_id) AS sessions
+    FROM analytics_events
+    WHERE site_id = {{ String(site_id, required=True) }}
+      {% if defined(date_from) %}
+      AND timestamp >= {{ DateTime(date_from) }}
+      {% end %}
+      {% if defined(date_to) %}
+      AND timestamp <= {{ DateTime(date_to) }}
+      {% end %}
+
+TYPE endpoint

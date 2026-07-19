@@ -1,0 +1,31 @@
+DESCRIPTION >
+    Pageviews over time, bucketed by hour/day/week/month.
+    Consumed exclusively by the Dashboard API Server.
+
+NODE bucketed
+SQL >
+    %
+    SELECT
+        {% if String(granularity, 'day') == 'hour' %}
+        toStartOfHour(timestamp) AS bucket
+        {% elif String(granularity, 'day') == 'week' %}
+        toStartOfWeek(timestamp) AS bucket
+        {% elif String(granularity, 'day') == 'month' %}
+        toStartOfMonth(timestamp) AS bucket
+        {% else %}
+        toStartOfDay(timestamp) AS bucket
+        {% end %}
+        , countIf(type = 'pageview') AS pageviews
+        , uniqExact(visitor_hash) AS unique_visitors
+    FROM analytics_events
+    WHERE site_id = {{ String(site_id, required=True) }}
+      {% if defined(date_from) %}
+      AND timestamp >= {{ DateTime(date_from) }}
+      {% end %}
+      {% if defined(date_to) %}
+      AND timestamp <= {{ DateTime(date_to) }}
+      {% end %}
+    GROUP BY bucket
+    ORDER BY bucket ASC
+
+TYPE endpoint

@@ -1,0 +1,26 @@
+DESCRIPTION >
+    Raw analytics events pushed by SitePulse workers.
+    This is the OLAP source of truth for all analytical queries.
+    Workers are the ONLY writer; the ingestion server never writes here directly.
+
+SCHEMA >
+    `event_id` String `json:$.event_id`,
+    `site_id` String `json:$.site_id`,
+    `visitor_hash` String `json:$.visitor_hash`,
+    `session_id` String `json:$.session_id`,
+    `type` LowCardinality(String) `json:$.type`,
+    `event_name` Nullable(String) `json:$.event_name`,
+    `url` String `json:$.url`,
+    `referrer` Nullable(String) `json:$.referrer`,
+    `title` Nullable(String) `json:$.title`,
+    `device_type` LowCardinality(Nullable(String)) `json:$.device_type`,
+    `browser` LowCardinality(Nullable(String)) `json:$.browser`,
+    `os` LowCardinality(Nullable(String)) `json:$.os`,
+    `country` LowCardinality(Nullable(String)) `json:$.country`,
+    `timestamp` DateTime64(3) `json:$.timestamp`,
+    `props` String `json:$.props`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(timestamp)"
+ENGINE_SORTING_KEY "site_id, timestamp, event_id"
+ENGINE_TTL "toDateTime(timestamp) + INTERVAL 25 MONTH"

@@ -1,0 +1,54 @@
+# ---- Env / secrets ----
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.local.example
+package-lock.json
+ca.pem
+
+# ---- Node / TypeScript (apps/ingestion-server, apps/worker, apps/dashboard-server, packages/shared) ----
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm-global/
+
+# ---- Next.js (apps/web) ----
+.next/
+out/
+next-env.d.ts
+
+# ---- Python (services/ai-agent) ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Tinybird CLI ----
+.tinyb
+
+# ---- Docker / infra ----
+*.pid
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- Editor / OS ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# ---- Coverage / test artifacts ----
+coverage/
+.turbo/

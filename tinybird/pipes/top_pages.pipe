@@ -1,0 +1,25 @@
+DESCRIPTION >
+    Top pages ranked by pageview count for a site/date range.
+    Consumed exclusively by the Dashboard API Server.
+
+NODE ranked
+SQL >
+    %
+    SELECT
+        url,
+        count() AS views,
+        uniqExact(visitor_hash) AS unique_visitors
+    FROM analytics_events
+    WHERE site_id = {{ String(site_id, required=True) }}
+      AND type = 'pageview'
+      {% if defined(date_from) %}
+      AND timestamp >= {{ DateTime(date_from) }}
+      {% end %}
+      {% if defined(date_to) %}
+      AND timestamp <= {{ DateTime(date_to) }}
+      {% end %}
+    GROUP BY url
+    ORDER BY views DESC
+    LIMIT 50
+
+TYPE endpoint

@@ -1,0 +1,103 @@
+// ============================================================
+// SitePulse - OLTP Schema (Neon PostgreSQL)
+// Source of truth for: users, sites, visitors, sessions, auth
+// Analytics events/aggregates live in Tinybird (OLAP), NOT here.
+// ============================================================
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ------------------------------------------------------------
+// Auth / Account
+// ------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sites Site[]
+
+  @@map("users")
+}
+
+// ------------------------------------------------------------
+// Sites being tracked
+// ------------------------------------------------------------
+
+model Site {
+  id          String   @id @default(cuid())
+  name        String
+  domain      String
+  publicKey   String   @unique @default(cuid()) // embedded in SDK snippet
+  secretKey   String   @unique @default(cuid()) // for server-side APIs
+  isActive    Boolean  @default(true)
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  visitors Visitor[]
+  sessions Session[]
+
+  @@index([ownerId])
+  @@index([publicKey])
+  @@map("sites")
+}
+
+// ------------------------------------------------------------
+// Anonymous visitors (privacy-first: no PII, salted hash only)
+// ------------------------------------------------------------
+
+model Visitor {
+  id            String   @id @default(cuid())
+  siteId        String
+  site          Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  visitorHash   String   // sha256(ip + userAgent + dailySalt), irreversible
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  totalSessions Int      @default(0)
+
+  sessions Session[]
+
+  @@unique([siteId, visitorHash])
+  @@index([siteId, lastSeenAt])
+  @@map("visitors")
+}
+
+// ------------------------------------------------------------
+// Sessions
+// ------------------------------------------------------------
+
+model Session {
+  id           String    @id @default(cuid())
+  siteId       String
+  site         Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  visitorId    String
+  visitor      Visitor   @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  startedAt    DateTime  @default(now())
+  lastActiveAt DateTime  @default(now())
+  endedAt      DateTime?
+  entryPage    String?
+  referrer     String?
+  deviceType   String? // mobile | desktop | tablet
+  browser      String?
+  os           String?
+  country      String?
+  pageViews    Int       @default(0)
+
+  @@index([siteId, startedAt])
+  @@index([visitorId])
+  @@map("sessions")
+}
