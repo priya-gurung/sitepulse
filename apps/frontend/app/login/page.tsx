@@ -67,6 +67,15 @@ export default function LoginPage() {
           placeholder="••••••••"
         />
 
+        <div className="flex justify-end -mt-1">
+          <Link
+            href="/forgot-password"
+            className="text-xs font-medium text-pulse-deep hover:underline"
+          >
+            Forgot password?
+          </Link>
+        </div>
+
         {error && (
           <p role="alert" className="text-sm text-signal-coral">
             {error}

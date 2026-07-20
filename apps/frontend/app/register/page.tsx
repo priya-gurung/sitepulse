@@ -2,14 +2,14 @@
 
 import { useState, FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AuthShell } from "@/components/AuthShell";
 import { Field } from "@/components/Field";
 import { Button } from "@/components/Button";
-import { useAuth } from "@/lib/auth-context";
-import { ApiError } from "@/lib/api";
+import { apiRequest, ApiError } from "@/lib/api";
 
 export default function RegisterPage() {
-  const { register } = useAuth();
+  const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,11 +21,19 @@ export default function RegisterPage() {
     setError(null);
     setLoading(true);
     try {
-      await register(email, password, name || undefined);
+      // Hit the new OTP-based registration endpoint
+      await apiRequest<{ message: string }>("/api/auth/register", {
+        method: "POST",
+        body: { name: name || undefined, email, password },
+      });
+      // Redirect to OTP verification page, pass email as query param
+      router.push(`/verify-otp?email=${encodeURIComponent(email)}`);
     } catch (err) {
       setError(
         err instanceof ApiError && err.status === 409
           ? "An account with that email already exists."
+          : err instanceof ApiError && err.status === 429
+          ? "A verification code was already sent. Check your email or wait a few minutes."
           : err instanceof ApiError && err.status === 400
           ? "Password needs to be at least 8 characters."
           : "Couldn't create your account. Try again."

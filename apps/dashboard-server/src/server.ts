@@ -6,16 +6,20 @@ import cors from "cors";
 import compression from "compression";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
+import dotenv from "dotenv";
+import path from "path";
 
 import { authRouter } from "./routes/auth.route";
+import { apiAuthRouter } from "./routes/auth.controller";
 import { sitesRouter } from "./routes/sites.route";
 import { analyticsRouter } from "./routes/analytics.route";
 import { askRouter } from "./routes/ask.route";
 import { errorHandler } from "./middleware/error-handler";
 
 const app = express();
-const PORT = Number(process.env.DASHBOARD_PORT ?? 4002);
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
+const PORT = Number(process.env.DASHBOARD_PORT ?? 4002);
 app.set("trust proxy", 1);
 
 app.use(helmet());
@@ -48,6 +52,7 @@ app.get("/healthz", (_req, res) => {
 });
 
 app.use(authRouter);
+app.use(apiAuthRouter);
 app.use(sitesRouter);
 app.use(analyticsRouter);
 app.use(askRouter);
