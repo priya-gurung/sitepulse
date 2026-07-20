@@ -36,9 +36,9 @@ function SiteSettingsContent() {
   }
 
   const snippet = `<script
-  src="http://localhost:8080/analytics.js"
+  src="http://52.64.210.186/sdk/analytics.js"
   data-site-key="${site.publicKey}"
-  data-endpoint="http://localhost:4001/collect"
+  data-endpoint="http://52.64.210.186/ingest/collect"
   async
 ></script>`;
 
