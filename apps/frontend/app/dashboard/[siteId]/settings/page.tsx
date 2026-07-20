@@ -36,9 +36,9 @@ function SiteSettingsContent() {
   }
 
   const snippet = `<script
-  src="http://52.64.210.186/sdk/analytics.js"
+  src="https://site-pulse.xyz/analytics.js"
   data-site-key="${site.publicKey}"
-  data-endpoint="http://52.64.210.186/ingest/collect"
+  data-endpoint="https://site-pulse.xyz/collect"
   async
 ></script>`;
 
