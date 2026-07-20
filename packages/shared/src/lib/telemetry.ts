@@ -16,6 +16,17 @@ export function initTelemetry(serviceName: string): NodeSDK {
   const otlpEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
   const prometheusPort = Number(process.env.OTEL_PROMETHEUS_PORT ?? 9464);
 
+  const rawHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+  const headers: Record<string, string> = {};
+  if (rawHeaders) {
+    rawHeaders.split(',').forEach(header => {
+      const [key, value] = header.split('=');
+      if (key && value) {
+        headers[key.trim()] = value.trim();
+      }
+    });
+  }
+
   const prometheusExporter = new PrometheusExporter({ port: prometheusPort }, () => {
     console.log(
       `[otel:${serviceName}] Prometheus metrics exposed on :${prometheusPort}/metrics`
@@ -28,12 +39,11 @@ export function initTelemetry(serviceName: string): NodeSDK {
     }),
     traceExporter: new OTLPTraceExporter({
       url: otlpEndpoint ? `${otlpEndpoint}/v1/traces` : undefined,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
     }),
     metricReader: prometheusExporter,
     instrumentations: [
       getNodeAutoInstrumentations({
-        // Noisy and rarely useful for this kind of service; disabled to
-        // keep trace volume signal-heavy rather than filesystem chatter.
         "@opentelemetry/instrumentation-fs": { enabled: false },
       }),
     ],
