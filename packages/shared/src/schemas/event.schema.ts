@@ -1,12 +1,28 @@
 import { z } from "zod";
 
 /**
+ * Click interaction properties passed by the SDK
+ */
+export const ClickDataSchema = z.object({
+  x: z.number().int().optional(),
+  y: z.number().int().optional(),
+  pageX: z.number().int().optional(),
+  pageY: z.number().int().optional(),
+  targetTag: z.string().max(30).optional(),
+  targetId: z.string().max(100).optional(),
+  targetClass: z.string().max(200).optional(),
+  text: z.string().max(150).optional(),
+});
+
+export type ClickDataInput = z.infer<typeof ClickDataSchema>;
+
+/**
  * Payload sent by the analytics.js SDK to POST /collect
  * Kept intentionally small — this is the hot path.
  */
 export const CollectEventSchema = z.object({
   publicKey: z.string().min(10, "invalid site key"),
-  type: z.enum(["pageview", "custom"]).default("pageview"),
+  type: z.enum(["pageview", "custom", "click"]).default("pageview"),
   eventName: z.string().max(120).optional(), // used when type === "custom"
   url: z.string().url(),
   referrer: z.string().url().optional().or(z.literal("")),
@@ -18,6 +34,7 @@ export const CollectEventSchema = z.object({
   sessionId: z.string().max(64).optional(), // client-generated, rotated per SDK session
   timestamp: z.number().int().positive().optional(), // client-side epoch ms
   props: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+  clickData: ClickDataSchema.optional(), // <--- Added click payload support
 });
 
 export type CollectEventInput = z.infer<typeof CollectEventSchema>;

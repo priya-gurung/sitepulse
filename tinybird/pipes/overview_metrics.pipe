@@ -7,6 +7,8 @@ SQL >
     %
     SELECT
         countIf(type = 'pageview') AS pageviews,
+        countIf(type = 'click') AS clicks,
+        countIf(type = 'custom') AS custom_events,
         uniqExact(visitor_hash) AS unique_visitors,
         uniqExact(session_id) AS sessions
     FROM analytics_events

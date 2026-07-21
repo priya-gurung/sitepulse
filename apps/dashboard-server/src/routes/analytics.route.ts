@@ -141,3 +141,27 @@ analyticsRouter.get("/analytics/geo", async (req, res, next) => {
     next(err);
   }
 });
+
+analyticsRouter.get("/analytics/clicks", async (req, res, next) => {
+  try {
+    const query = AnalyticsQuerySchema.parse(req.query);
+    const authorized = await assertSiteOwnership(query.siteId, req.user!.userId);
+    if (!authorized) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
+
+    const cacheKey = `clicks:${JSON.stringify(query)}`;
+    const data = await withCache(cacheKey, 30_000, () =>
+      queryPipe("clicks", {
+        site_id: query.siteId,
+        date_from: formatTinybirdDate(query.from),
+        date_to: formatTinybirdDate(query.to),
+      })
+    );
+
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});

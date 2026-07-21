@@ -1,0 +1,29 @@
+DESCRIPTION >
+    Top clicked elements and click counts over a date range.
+    Consumed by Dashboard API Server.
+
+NODE top_clicks
+SQL >
+    %
+    SELECT
+        JSONExtractString(props, 'clickData', 'targetTag') AS tag,
+        JSONExtractString(props, 'clickData', 'targetId') AS id,
+        JSONExtractString(props, 'clickData', 'text') AS text,
+        JSONExtractInt(props, 'clickData', 'x') AS x,
+        JSONExtractInt(props, 'clickData', 'y') AS y,
+        count() AS total_clicks,
+        uniqExact(session_id) AS unique_sessions
+    FROM analytics_events
+    WHERE site_id = {{ String(site_id, required=True) }}
+      AND type = 'click'
+      {% if defined(date_from) %}
+      AND timestamp >= {{ DateTime(date_from) }}
+      {% end %}
+      {% if defined(date_to) %}
+      AND timestamp <= {{ DateTime(date_to) }}
+      {% end %}
+    GROUP BY tag, id, text, x, y
+    ORDER BY total_clicks DESC
+    LIMIT 50
+
+TYPE endpoint

@@ -8,10 +8,13 @@ SQL >
     SELECT
         country,
         uniqExact(visitor_hash) AS unique_visitors,
-        count() AS events
+        count() AS events,
+        countIf(type = 'pageview') AS pageviews
     FROM analytics_events
     WHERE site_id = {{ String(site_id, required=True) }}
       AND country IS NOT NULL
+      AND country != ''
+      AND country != 'XX'
       {% if defined(date_from) %}
       AND timestamp >= {{ DateTime(date_from) }}
       {% end %}

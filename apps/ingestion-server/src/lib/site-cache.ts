@@ -26,7 +26,6 @@ async function refresh(): Promise<void> {
     const sites = await prisma.site.findMany({
       select: { publicKey: true, id: true, isActive: true },
     });
-    console.log(sites);
     const next = new Map<string, CachedSite>();
     for (const s of sites) {
       next.set(s.publicKey, { siteId: s.id, isActive: s.isActive });

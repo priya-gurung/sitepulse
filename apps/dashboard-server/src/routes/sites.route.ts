@@ -29,8 +29,11 @@ sitesRouter.get("/sites", async (req, res, next) => {
 sitesRouter.post("/sites", async (req, res, next) => {
   try {
     const input = CreateSiteSchema.parse(req.body);
+    const name = input.name!;
+    const domain = input.domain!;
+    
     const site = await prisma.site.create({
-      data: { ...input, ownerId: req.user!.userId },
+      data: { name, domain, owner: { connect: {id: req.user!.userId } } },
       select: { id: true, name: true, domain: true, publicKey: true, isActive: true },
     });
     res.status(201).json({ site });
