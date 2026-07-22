@@ -9,7 +9,13 @@ import {
   hashPassword,
   signToken,
 } from "@sitepulse/shared";
-import { sendOtpEmail, sendPasswordResetEmail } from "../services/email.util";
+import { sendOtpEmail as sesSendOtp, sendPasswordResetEmail as sesSendReset } from "../services/email.util";
+import { sendOtpEmail as smtpSendOtp, sendPasswordResetEmail as smtpSendReset } from "../services/smtp-email.util";
+
+// Pick email provider based on EMAIL_PROVIDER env var ("ses" | "smtp", defaults to "smtp")
+const provider = (process.env.EMAIL_PROVIDER ?? "smtp").toLowerCase();
+const sendOtpEmail = provider === "smtp" ? smtpSendOtp : sesSendOtp;
+const sendPasswordResetEmail = provider === "smtp" ? smtpSendReset : sesSendReset;
 import {
   pendingRegistrations,
   resetTokens,
