@@ -99,8 +99,8 @@ async def ask(request: AskRequest) -> AskResponse:
         initial_state = {
             "messages": [HumanMessage(content=request.question)],
             "site_id": request.site_id,
-            "start_date": request.date_range.start_date.isoformat(),
-            "end_date": request.date_range.end_date.isoformat(),
+            "start_date": request.date_range.start_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_date": request.date_range.end_date.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
         try:

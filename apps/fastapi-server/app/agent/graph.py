@@ -1,6 +1,7 @@
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
+from datetime import datetime, timezone
 
 from ..config import Settings
 from ..tinybird_client import TinybirdClient
@@ -28,9 +29,20 @@ def build_agent_graph(settings: Settings, tinybird: TinybirdClient):
 
     async def agent_node(state: AgentState) -> dict:
         messages = state["messages"]
+        start_date = state.get("start_date")
+        end_date = state.get("end_date")
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        formatted_system_prompt = (
+            f"{SYSTEM_PROMPT}\n\n"
+            f"DATE CONTEXT:\n"
+            f"- Today's Date is explicitly: {today_str}\n"
+            f"- Query Filter Date Range: {start_date} to {end_date}\n"
+            f"Use Today's Date ({today_str}) as your baseline when the user mentions relative terms like "
+            f"'today', 'yesterday', 'this week', or 'last month'."
+        )
         # Prepend the system prompt fresh each turn rather than storing it
         # in state — keeps it out of the persisted message history.
-        response = await model.ainvoke([("system", SYSTEM_PROMPT), *messages])
+        response = await model.ainvoke([("system", formatted_system_prompt), *messages])
         return {"messages": [response]}
 
     def should_continue(state: AgentState) -> str:
