@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     # ---- Observability ----
     OTEL_SERVICE_NAME: str = "ai-agent"
     OTEL_EXPORTER_OTLP_ENDPOINT: str | None = None
+    HONEYCOMB_API_KEY: str | None = None
     OTEL_PROMETHEUS_PORT: int = 9467
 
 

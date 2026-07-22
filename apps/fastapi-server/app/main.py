@@ -1,5 +1,6 @@
 import os
 import asyncio
+import logging
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -20,15 +21,20 @@ from .telemetry import (
     tool_call_counter,
 )
 from .tinybird_client import TinybirdClient, TinybirdError
+
 load_dotenv()
+
+# Initialize module logger
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     init_telemetry(settings)
+    logger.info("Initializing SitePulse AI Agent service...")
 
     if not settings.INTERNAL_AI_API_KEY:
-        print(
+        logger.warning(
             "[ai-agent] WARNING: INTERNAL_AI_API_KEY is not set — /ask is reachable "
             "by anyone who can route to this service. Set it in production and have "
             "the dashboard server send the matching X-Internal-Api-Key header."
@@ -38,6 +44,7 @@ async def lifespan(app: FastAPI):
         tinybird = TinybirdClient(settings, http_client)
         app.state.agent_graph = build_agent_graph(settings, tinybird)
         app.state.settings = settings
+        logger.info("Agent graph built successfully. Service ready to accept requests.")
         yield
 
 
@@ -49,25 +56,18 @@ app = FastAPI(
 instrument_app(app)
 
 
-async def verify_internal_token(x_internal_api_key: str | None = Header(None,alias="X-Internal-Api-Key")):
+async def verify_internal_token(x_internal_api_key: str | None = Header(None, alias="X-Internal-Api-Key")):
     """
     Validates the shared secret the dashboard server sends. Only checked
     when INTERNAL_AI_API_KEY is configured, so local dev without it set
     still works — but production deployments should always set it.
     """
     load_dotenv(override=True)
-    raw_token = os.getenv("TINYBIRD_READ_TOKEN")
-    raw_host = os.getenv("TINYBIRD_HOST")
     expected_ai_key = os.getenv("INTERNAL_AI_API_KEY")
-    
-    # 3. Print the diagnostic output
-    # print(f"[Tinybird Auth Debug] Raw token length via getenv: {len(raw_token) if raw_token else 'None/Undefined'}")
-    # print(f"[Tinybird Auth Debug] Raw host string value: {raw_host}")
-    # print(f"[FastAPI Env Check] Expected: {os.getenv('INTERNAL_AI_API_KEY')}")
-    # print(f"[FastAPI Env Check] Received: {x_internal_api_key}")
 
     settings = get_settings()
     if settings.INTERNAL_AI_API_KEY and x_internal_api_key != expected_ai_key:
+        logger.warning("Internal token verification failed: invalid X-Internal-Api-Key received.")
         raise HTTPException(status_code=401, detail="invalid_internal_token")
 
 
@@ -93,6 +93,14 @@ async def ask(request: AskRequest) -> AskResponse:
     tracer = get_tracer()
     start = time.perf_counter()
 
+    logger.info(
+        "Received /ask request for site_id: %s | Question: '%s' | Range: %s to %s",
+        request.site_id,
+        request.question,
+        request.date_range.start_date,
+        request.date_range.end_date,
+    )
+
     with tracer.start_as_current_span("agent.ask") as span:
         span.set_attribute("sitepulse.site_id", request.site_id)
 
@@ -112,15 +120,17 @@ async def ask(request: AskRequest) -> AskResponse:
                 timeout=settings.REQUEST_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
+            logger.error("Agent execution timed out after %s seconds.", settings.REQUEST_TIMEOUT_SECONDS)
             ask_requests_counter.add(1, {"outcome": "timeout"})
             span.set_attribute("sitepulse.outcome", "timeout")
             raise HTTPException(status_code=504, detail="agent_timeout")
         except TinybirdError as err:
-            # print(f"\n[Tinybird Pipeline Error Details]: STATUS: {err.status_code} | MSG: {str(err)}\n")
+            logger.error("Tinybird query error encountered: %s", err, exc_info=True)
             ask_requests_counter.add(1, {"outcome": "tinybird_error"})
             span.set_attribute("sitepulse.outcome", "tinybird_error")
             raise HTTPException(status_code=502, detail="analytics_backend_unavailable") from err
         except Exception as err:  # noqa: BLE001 — deliberately broad: any agent failure -> 500
+            logger.error("Unhandled exception during agent graph execution: %s", err, exc_info=True)
             ask_requests_counter.add(1, {"outcome": "error"})
             span.set_attribute("sitepulse.outcome", "error")
             raise HTTPException(status_code=500, detail="agent_failed") from err
@@ -138,10 +148,18 @@ async def ask(request: AskRequest) -> AskResponse:
         for tool_name in tools_used:
             tool_call_counter.add(1, {"tool": tool_name})
 
-        agent_duration_histogram.record((time.perf_counter() - start) * 1000)
+        duration_ms = (time.perf_counter() - start) * 1000
+        agent_duration_histogram.record(duration_ms)
         ask_requests_counter.add(1, {"outcome": "success"})
         span.set_attribute("sitepulse.outcome", "success")
         span.set_attribute("sitepulse.tools_used", ",".join(tools_used))
+
+        logger.info(
+            "Successfully generated answer for site_id: %s in %.2f ms | Tools used: %s",
+            request.site_id,
+            duration_ms,
+            tools_used,
+        )
 
         return AskResponse(
             answer=answer,

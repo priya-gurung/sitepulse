@@ -4,6 +4,7 @@ import {
   prisma,
   ingestEventsBatch, // <--- Replaced ingestEvent with ingestEventsBatch
   eventProcessingDuration,
+  getLogger,
   type QueuedEvent,
   type RawAnalyticsEvent,
 } from "@sitepulse/shared";
@@ -11,6 +12,7 @@ import { parseDevice } from "../lib/device-parser";
 
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const tracer = trace.getTracer("sitepulse-worker");
+const logger = getLogger("sitepulse-worker");
 
 /**
  * Processes a single event against Postgres for Visitor and Session state.
@@ -139,6 +141,12 @@ export async function processAnalyticsEventsBatch(events: QueuedEvent[]): Promis
 
       span.setStatus({ code: SpanStatusCode.OK });
     } catch (err) {
+      logger.error("Failed to process analytics event in worker processor", {
+        siteId: event.siteId,
+        eventType: event.type,
+        error: err,
+      });
+
       span.recordException(err as Error);
       span.setStatus({
         code: SpanStatusCode.ERROR,

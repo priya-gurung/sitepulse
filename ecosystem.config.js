@@ -7,9 +7,10 @@ module.exports = {
       exec_mode: "fork", // Use fork locally to avoid cluster path bugs
       watch: false,
       env: {
-        // Changed from env_production to env
         NODE_ENV: "production",
-        PORT: 3001,
+        PORT: 4001,
+        OTEL_SERVICE_NAME: "ingestion-server",
+        OTEL_PROMETHEUS_PORT: 9464,
       },
     },
     {
@@ -20,7 +21,9 @@ module.exports = {
       watch: false,
       env: {
         NODE_ENV: "production",
-        PORT: 3002,
+        PORT: 4002,
+        OTEL_SERVICE_NAME: "dashboard-server",
+        OTEL_PROMETHEUS_PORT: 9465,
       },
     },
     {
@@ -31,28 +34,35 @@ module.exports = {
       watch: false,
       env: {
         NODE_ENV: "production",
+        OTEL_SERVICE_NAME: "sitepulse-worker",
+        OTEL_PROMETHEUS_PORT: 9466,
       },
     },
     {
       name: "sitepulse-frontend",
       // Go up two steps from apps/frontend to hit the root node_modules JavaScript runner
-      script: "../../node_modules/next/dist/bin/next",
+      script: "./node_modules/next/dist/bin/next",
       args: "start -p 3000",
-      cwd: "./apps/frontend",
+      cwd: "../sitepulse_frontend",
       instances: 1,
       exec_mode: "fork",
       watch: false,
       env: {
         NODE_ENV: "production",
+        PORT: 3000,
       },
     },
     {
       name: "sitepulse-fastapi",
-      cwd: "./apps/fastapi-server", // <-- Add this to tell PM2 where to look
-      script: "./.venv/bin/uvicorn", // <-- Relative now to cwd path
+      cwd: "./apps/fastapi-server",
+      script: "./.venv/bin/uvicorn",
       args: "app.main:app --host 127.0.0.1 --port 8000 --workers 1",
       interpreter: "none",
       watch: false,
+      env: {
+        OTEL_SERVICE_NAME: "ai-agent",
+        OTEL_PROMETHEUS_PORT: 9467,
+      },
     },
     {
       name: "sitepulse-sdk-test-server",

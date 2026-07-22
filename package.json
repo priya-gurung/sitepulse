@@ -4,8 +4,11 @@
   "version": "1.0.0",
   "description": "Privacy-first website analytics platform (hybrid OLTP/OLAP)",
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "packages/*",
+    "apps/dashboard-server",
+    "apps/ingestion-server",
+    "apps/worker",
+    "apps/fastapi-server"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
