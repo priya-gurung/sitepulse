@@ -6,6 +6,7 @@ import {
   getDailySalt,
   isLikelyBot,
   produceEvent,
+  produceEventBatch,
   eventsReceivedCounter,
   eventsRejectedCounter,
   kafkaProduceDuration,
@@ -107,14 +108,44 @@ collectRouter.post(
       }
 
       // 4. Produce valid batch events to Kafka
+      // await tracer.startActiveSpan("ingestion.produce_batch", async (span) => {
+      //   const start = performance.now();
+      //   span.setAttribute("sitepulse.batch_size", eventsToProduce.length);
+
+      //   try {
+      //     await Promise.all(
+      //       eventsToProduce.map(({ queuedEvent }) => produceEvent(queuedEvent))
+      //     );
+
+      //     span.setStatus({ code: SpanStatusCode.OK });
+      //   } catch (err) {
+      //     span.recordException(err as Error);
+      //     span.setStatus({
+      //       code: SpanStatusCode.ERROR,
+      //       message: (err as Error).message,
+      //     });
+      //     throw err;
+      //   } finally {
+      //     eventsToProduce.forEach(({ eventType }) => {
+      //       kafkaProduceDuration.record(performance.now() - start, {
+      //         event_type: eventType,
+      //       });
+      //       eventsReceivedCounter.add(1, { event_type: eventType });
+      //     });
+      //     span.end();
+      //   }
+      // });
+
       await tracer.startActiveSpan("ingestion.produce_batch", async (span) => {
         const start = performance.now();
         span.setAttribute("sitepulse.batch_size", eventsToProduce.length);
 
         try {
-          await Promise.all(
-            eventsToProduce.map(({ queuedEvent }) => produceEvent(queuedEvent))
-          );
+          // 1. Extract the queued events array
+          const events = eventsToProduce.map((item) => item.queuedEvent);
+
+          // 2. Publish as a single batch rather than parallel single requests
+          await produceEventBatch(events);
 
           span.setStatus({ code: SpanStatusCode.OK });
         } catch (err) {
@@ -125,8 +156,10 @@ collectRouter.post(
           });
           throw err;
         } finally {
+          const duration = performance.now() - start;
+
           eventsToProduce.forEach(({ eventType }) => {
-            kafkaProduceDuration.record(performance.now() - start, {
+            kafkaProduceDuration.record(duration, {
               event_type: eventType,
             });
             eventsReceivedCounter.add(1, { event_type: eventType });
