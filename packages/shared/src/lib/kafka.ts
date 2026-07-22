@@ -106,6 +106,24 @@ export async function produceEvent(event: QueuedEvent): Promise<void> {
   });
 }
 
+export async function produceEventBatch(events: QueuedEvent[]): Promise<void> {
+  if (!events.length) return;
+
+  const p = await getProducer();
+
+  await p.sendBatch({
+    topicMessages: [
+      {
+        topic: TOPICS.ANALYTICS_EVENTS,
+        messages: events.map((event) => ({
+          key: event.siteId,
+          value: JSON.stringify(event),
+        })),
+      },
+    ],
+  });
+}
+
 export async function produceToDeadLetter(rawValue: string, reason: string): Promise<void> {
   const p = await getProducer();
   await p.send({
