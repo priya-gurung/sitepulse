@@ -8,18 +8,23 @@ import {
   prisma,
   hashPassword,
   signToken,
+  getLogger,
 } from "@sitepulse/shared";
+import { trace } from "@opentelemetry/api";
 import { sendOtpEmail as sesSendOtp, sendPasswordResetEmail as sesSendReset } from "../services/email.util";
 import { sendOtpEmail as smtpSendOtp, sendPasswordResetEmail as smtpSendReset } from "../services/smtp-email.util";
+import {
+  pendingRegistrations,
+  resetTokens,
+} from "../services/temp-store.service";
+
+const logger = getLogger("dashboard-server");
+const tracer = trace.getTracer("dashboard-server");
 
 // Pick email provider based on EMAIL_PROVIDER env var ("ses" | "smtp", defaults to "smtp")
 const provider = (process.env.EMAIL_PROVIDER ?? "smtp").toLowerCase();
 const sendOtpEmail = provider === "smtp" ? smtpSendOtp : sesSendOtp;
 const sendPasswordResetEmail = provider === "smtp" ? smtpSendReset : sesSendReset;
-import {
-  pendingRegistrations,
-  resetTokens,
-} from "../services/temp-store.service";
 
 export const apiAuthRouter = Router();
 
@@ -29,24 +34,33 @@ const RESET_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 // ------------------------------------------------------------
 // POST /api/auth/register
 // Accepts name, email, password. Generates 6-digit OTP, hashes
-// password, stores temporarily, and emails the OTP via AWS SES.
+// password, stores temporarily, and emails the OTP via AWS SES / SMTP.
 // ------------------------------------------------------------
 
 apiAuthRouter.post("/api/auth/register", async (req, res, next) => {
   try {
     const input = OtpRegisterSchema.parse(req.body);
+    logger.info("Processing OTP registration request", { email: input.email, provider });
 
     // Check if email is already permanently registered
-    const existing = await prisma.user.findUnique({
-      where: { email: input.email },
+    const existing = await tracer.startActiveSpan("prisma.user.findUnique", async (span) => {
+      span.setAttribute("user.email", input.email);
+      try {
+        return await prisma.user.findUnique({ where: { email: input.email } });
+      } finally {
+        span.end();
+      }
     });
+
     if (existing) {
+      logger.warn("OTP registration rejected: email already registered", { email: input.email });
       res.status(409).json({ error: "email_already_registered" });
       return;
     }
 
     // Prevent OTP spam — reject if a pending OTP already exists
     if (pendingRegistrations.has(input.email)) {
+      logger.warn("OTP registration rate-limited: pending OTP already active", { email: input.email });
       res.status(429).json({
         error: "otp_already_sent",
         message:
@@ -56,7 +70,14 @@ apiAuthRouter.post("/api/auth/register", async (req, res, next) => {
     }
 
     // Hash password and generate 6-digit OTP
-    const passwordHash = await hashPassword(input.password);
+    const passwordHash = await tracer.startActiveSpan("auth.hashPassword", async (span) => {
+      try {
+        return await hashPassword(input.password);
+      } finally {
+        span.end();
+      }
+    });
+
     const otp = crypto.randomInt(100_000, 1_000_000).toString();
 
     // Store pending registration (auto-expires after OTP_TTL_MS)
@@ -72,10 +93,20 @@ apiAuthRouter.post("/api/auth/register", async (req, res, next) => {
     );
 
     // Send OTP email
-    await sendOtpEmail(input.email, otp);
+    await tracer.startActiveSpan("email.sendOtp", async (span) => {
+      span.setAttribute("email.provider", provider);
+      span.setAttribute("user.email", input.email);
+      try {
+        await sendOtpEmail(input.email, otp);
+      } finally {
+        span.end();
+      }
+    });
 
+    logger.info("OTP generated and sent successfully", { email: input.email, provider });
     res.status(201).json({ message: "otp_sent" });
   } catch (err) {
+    logger.error("Failed to process OTP registration", { error: err });
     next(err);
   }
 });
@@ -89,10 +120,12 @@ apiAuthRouter.post("/api/auth/register", async (req, res, next) => {
 apiAuthRouter.post("/api/auth/verify-otp", async (req, res, next) => {
   try {
     const input = VerifyOtpSchema.parse(req.body);
+    logger.info("Processing OTP verification attempt", { email: input.email });
 
     // Look up pending registration
     const pending = pendingRegistrations.get(input.email);
     if (!pending) {
+      logger.warn("OTP verification failed: no pending registration found or expired", { email: input.email });
       res.status(400).json({
         error: "otp_expired_or_invalid",
         message:
@@ -108,18 +141,28 @@ apiAuthRouter.post("/api/auth/verify-otp", async (req, res, next) => {
       otpBuffer.length !== storedBuffer.length ||
       !crypto.timingSafeEqual(otpBuffer, storedBuffer)
     ) {
+      logger.warn("OTP verification failed: invalid OTP provided", { email: input.email });
       res.status(401).json({ error: "invalid_otp" });
       return;
     }
 
     // Persist user to the database
-    const user = await prisma.user.create({
-      data: {
-        email: pending.email,
-        passwordHash: pending.passwordHash,
-        name: pending.name,
-      },
-      select: { id: true, email: true, name: true },
+    const user = await tracer.startActiveSpan("prisma.user.create", async (span) => {
+      span.setAttribute("user.email", pending.email);
+      try {
+        const createdUser = await prisma.user.create({
+          data: {
+            email: pending.email,
+            passwordHash: pending.passwordHash,
+            name: pending.name,
+          },
+          select: { id: true, email: true, name: true },
+        });
+        span.setAttribute("user.id", createdUser.id);
+        return createdUser;
+      } finally {
+        span.end();
+      }
     });
 
     // Clean up temp store
@@ -127,9 +170,11 @@ apiAuthRouter.post("/api/auth/verify-otp", async (req, res, next) => {
 
     // Issue JWT
     const token = signToken({ userId: user.id, email: user.email });
+    logger.info("OTP verified successfully and user account created", { userId: user.id, email: user.email });
 
     res.status(201).json({ user, token });
   } catch (err) {
+    logger.error("Failed during OTP verification process", { error: err });
     next(err);
   }
 });
@@ -137,18 +182,21 @@ apiAuthRouter.post("/api/auth/verify-otp", async (req, res, next) => {
 // ------------------------------------------------------------
 // POST /api/auth/forgot-password
 // Accepts email. If user exists, generates a secure reset token
-// and emails a link via AWS SES. Always returns 200 to prevent
-// email enumeration.
+// and emails a link. Always returns 200 to prevent email enumeration.
 // ------------------------------------------------------------
 
 apiAuthRouter.post("/api/auth/forgot-password", async (req, res, next) => {
   try {
     const input = ForgotPasswordSchema.parse(req.body);
+    logger.info("Processing forgot password request", { email: input.email });
 
-    // Always return 200 regardless of whether the email exists
-    // to prevent email enumeration attacks.
-    const user = await prisma.user.findUnique({
-      where: { email: input.email },
+    const user = await tracer.startActiveSpan("prisma.user.findUnique", async (span) => {
+      span.setAttribute("user.email", input.email);
+      try {
+        return await prisma.user.findUnique({ where: { email: input.email } });
+      } finally {
+        span.end();
+      }
     });
 
     if (user) {
@@ -159,16 +207,28 @@ apiAuthRouter.post("/api/auth/forgot-password", async (req, res, next) => {
       resetTokens.set(token, { email: user.email }, RESET_TOKEN_TTL_MS);
 
       // Build reset link
-      const frontendUrl =
-        process.env.FRONTEND_URL ?? "https://yourdomain.com";
+      const frontendUrl = process.env.FRONTEND_URL ?? "https://yourdomain.com";
       const resetLink = `${frontendUrl}/reset-password?token=${token}`;
 
-      // Send email (fire-and-forget pattern: log errors but don't fail the request)
-      await sendPasswordResetEmail(user.email, resetLink);
+      // Send email
+      await tracer.startActiveSpan("email.sendPasswordReset", async (span) => {
+        span.setAttribute("email.provider", provider);
+        span.setAttribute("user.email", user.email);
+        try {
+          await sendPasswordResetEmail(user.email, resetLink);
+        } finally {
+          span.end();
+        }
+      });
+
+      logger.info("Password reset email sent successfully", { userId: user.id, email: user.email, provider });
+    } else {
+      logger.info("Forgot password request completed for non-existent email (enumeration safety)", { email: input.email });
     }
 
     res.status(200).json({ message: "reset_email_sent" });
   } catch (err) {
+    logger.error("Failed during forgot password flow", { error: err });
     next(err);
   }
 });
@@ -182,10 +242,12 @@ apiAuthRouter.post("/api/auth/forgot-password", async (req, res, next) => {
 apiAuthRouter.post("/api/auth/reset-password", async (req, res, next) => {
   try {
     const input = ResetPasswordSchema.parse(req.body);
+    logger.info("Processing password reset execution request");
 
     // Look up reset token
     const tokenEntry = resetTokens.get(input.token);
     if (!tokenEntry) {
+      logger.warn("Password reset failed: token expired or invalid");
       res.status(400).json({
         error: "token_expired_or_invalid",
         message:
@@ -195,19 +257,34 @@ apiAuthRouter.post("/api/auth/reset-password", async (req, res, next) => {
     }
 
     // Hash new password
-    const passwordHash = await hashPassword(input.password);
+    const passwordHash = await tracer.startActiveSpan("auth.hashPassword", async (span) => {
+      try {
+        return await hashPassword(input.password);
+      } finally {
+        span.end();
+      }
+    });
 
     // Update user record in the database
-    await prisma.user.update({
-      where: { email: tokenEntry.email },
-      data: { passwordHash },
+    await tracer.startActiveSpan("prisma.user.updatePassword", async (span) => {
+      span.setAttribute("user.email", tokenEntry.email);
+      try {
+        await prisma.user.update({
+          where: { email: tokenEntry.email },
+          data: { passwordHash },
+        });
+      } finally {
+        span.end();
+      }
     });
 
     // Destroy the token immediately (single use)
     resetTokens.delete(input.token);
 
+    logger.info("Password reset executed successfully", { email: tokenEntry.email });
     res.status(200).json({ message: "password_reset_success" });
   } catch (err) {
+    logger.error("Failed to reset password", { error: err });
     next(err);
   }
 });

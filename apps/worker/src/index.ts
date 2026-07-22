@@ -7,8 +7,13 @@ import {
   QueuedEventSchema,
   eventsProcessedCounter,
   eventsFailedCounter,
+  getLogger,
 } from "@sitepulse/shared";
+import { trace } from "@opentelemetry/api";
 import { processAnalyticsEvent } from "./processors/analytics-event.processor";
+
+const logger = getLogger("sitepulse-worker");
+const tracer = trace.getTracer("sitepulse-worker");
 
 const CONSUMER_GROUP = process.env.KAFKA_CONSUMER_GROUP ?? "sitepulse-worker";
 const MAX_ATTEMPTS = Number(process.env.WORKER_MAX_ATTEMPTS ?? 3);
@@ -28,16 +33,37 @@ async function processWithRetry(rawValue: string): Promise<void> {
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const parsed = QueuedEventSchema.parse(JSON.parse(rawValue));
-      await processAnalyticsEvent(parsed);
-      eventsProcessedCounter.add(1, { event_type: parsed.type });
+      await tracer.startActiveSpan("worker.process_event", async (span) => {
+        try {
+          span.setAttribute("worker.retry_attempt", attempt);
+          
+          const parsed = QueuedEventSchema.parse(JSON.parse(rawValue));
+          span.setAttribute("site.id", parsed.siteId);
+          span.setAttribute("event.type", parsed.type);
+
+          await processAnalyticsEvent(parsed);
+          eventsProcessedCounter.add(1, { event_type: parsed.type });
+          
+          logger.info("Successfully processed analytics event", {
+            siteId: parsed.siteId,
+            eventType: parsed.type,
+            attempt,
+          });
+        } finally {
+          span.end();
+        }
+      });
       return;
     } catch (err) {
       lastError = err;
-      console.error(
-        `[worker] attempt ${attempt}/${MAX_ATTEMPTS} failed:`,
-        err instanceof Error ? err.message : err
-      );
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      
+      logger.warn(`Worker processing attempt ${attempt}/${MAX_ATTEMPTS} failed`, {
+        attempt,
+        maxAttempts: MAX_ATTEMPTS,
+        error: errorMessage,
+      });
+
       if (attempt < MAX_ATTEMPTS) {
         await new Promise((resolve) => setTimeout(resolve, attempt * 500));
       }
@@ -45,52 +71,77 @@ async function processWithRetry(rawValue: string): Promise<void> {
   }
 
   eventsFailedCounter.add(1);
-  await produceToDeadLetter(
-    rawValue,
-    lastError instanceof Error ? lastError.message : "unknown_error"
-  );
+
+  const failureReason = lastError instanceof Error ? lastError.message : "unknown_error";
+  logger.error("Event failed after max attempts. Routing to Dead Letter Queue (DLQ)", {
+    maxAttempts: MAX_ATTEMPTS,
+    error: failureReason,
+  });
+
+  await tracer.startActiveSpan("worker.produce_to_dlq", async (span) => {
+    try {
+      span.setAttribute("dlq.reason", failureReason);
+      await produceToDeadLetter(rawValue, failureReason);
+    } finally {
+      span.end();
+    }
+  });
 }
 
 async function main() {
   await consumer.connect();
   await consumer.subscribe({ topic: TOPICS.ANALYTICS_EVENTS, fromBeginning: false });
 
-  console.log(
-    `[worker] consuming "${TOPICS.ANALYTICS_EVENTS}" as group "${CONSUMER_GROUP}" (max ${MAX_ATTEMPTS} attempts before DLQ)`
-  );
+  logger.info(`Worker consuming Kafka topic`, {
+    topic: TOPICS.ANALYTICS_EVENTS,
+    consumerGroup: CONSUMER_GROUP,
+    maxAttempts: MAX_ATTEMPTS,
+  });
 
   await consumer.run({
     // Kafka delivers messages within a partition in order; we process
     // them sequentially here to preserve per-site ordering (events are
     // keyed by siteId at produce time). Different partitions still run
     // concurrently across the consumer group / other worker replicas.
-    eachMessage: async ({ message, partition }) => {
+    eachMessage: async ({ message, partition, topic }) => {
       if (!message.value) return;
       const rawValue = message.value.toString();
 
-      try {
-        await processWithRetry(rawValue);
-      } catch (err) {
-        // processWithRetry already routes to the DLQ; this catch is a
-        // last-resort safety net so a single bad message can never crash
-        // the consumer loop.
-        console.error(`[worker] unrecoverable error on partition ${partition}:`, err);
-      }
+      await tracer.startActiveSpan("worker.consume_kafka_message", async (span) => {
+        span.setAttribute("kafka.topic", topic);
+        span.setAttribute("kafka.partition", partition);
+        span.setAttribute("kafka.offset", message.offset);
+
+        try {
+          await processWithRetry(rawValue);
+        } catch (err) {
+          // processWithRetry already routes to the DLQ; this catch is a
+          // last-resort safety net so a single bad message can never crash
+          // the consumer loop.
+          logger.error(`Unrecoverable error processing message on partition ${partition}`, {
+            partition,
+            offset: message.offset,
+            error: err,
+          });
+        } finally {
+          span.end();
+        }
+      });
     },
   });
 }
 
 main().catch((err) => {
-  console.error("[worker] fatal startup error:", err);
+  logger.error("Fatal startup error in worker process", { error: err });
   process.exit(1);
 });
 
 async function shutdown(signal: string) {
-  console.log(`[worker] received ${signal}, shutting down gracefully...`);
+  logger.info(`Received ${signal}, shutting down worker gracefully...`, { signal });
   try {
     await consumer.disconnect();
   } catch (err) {
-    console.error("[worker] error disconnecting consumer:", err);
+    logger.error("Error disconnecting Kafka consumer during shutdown", { error: err });
   }
   process.exit(0);
 }
