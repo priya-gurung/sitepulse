@@ -41,14 +41,15 @@ module.exports = {
     {
       name: "sitepulse-frontend",
       // Go up two steps from apps/frontend to hit the root node_modules JavaScript runner
-      script: "../../node_modules/next/dist/bin/next",
+      script: "./node_modules/next/dist/bin/next",
       args: "start -p 3000",
-      cwd: "./apps/frontend",
+      cwd: "../sitepulse_frontend",
       instances: 1,
       exec_mode: "fork",
       watch: false,
       env: {
         NODE_ENV: "production",
+        PORT: 3000,
       },
     },
     {
