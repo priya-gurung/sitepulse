@@ -13,15 +13,28 @@
     return;
   }
 
-  // Session id: held in-memory per tab
-  var sessionId =
-    Date.now().toString(36) + Math.random().toString(36).slice(2);
+  // Session ID: Retrieve from sessionStorage or generate and store a new one
+  var SESSION_STORAGE_KEY = "sitepulse_sid";
+  var sessionId = null;
+
+  try {
+    sessionId = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (!sessionId) {
+      sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+      sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+    }
+  } catch (e) {
+    sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
 
   // Queue and Batching State
   var queue = [];
   var FLUSH_INTERVAL = 10000; // 10 seconds
   var MAX_BATCH_SIZE = 20;
   var flushTimer = null;
+
+  // Track the current URL to prevent duplicate route change tracking
+  var currentUrl = location.href;
 
   function send(batchPayload) {
     if (!batchPayload || !batchPayload.length) return;
@@ -76,8 +89,12 @@
     };
   }
 
+  function getPageviewEvent() {
+    return Object.assign({ type: "pageview" }, basePayload());
+  }
+
   function trackPageview() {
-    enqueue(Object.assign({ type: "pageview" }, basePayload()));
+    enqueue(getPageviewEvent());
   }
 
   // Public API for custom events
@@ -95,7 +112,6 @@
     var target = e.target;
     if (!target) return;
 
-    // Get cleaned inner text (truncated to 100 chars max)
     var textContent = (target.innerText || target.textContent || "")
       .trim()
       .replace(/\s+/g, " ")
@@ -117,13 +133,18 @@
     enqueue(clickData);
   }, true);
 
-  // Initial pageview
-  trackPageview();
+  // Send initial pageview immediately on load
+  send([getPageviewEvent()]);
 
   // --- SPA Route Tracking ---
   function handleRouteUpdate() {
-    // Timeout ensures URL/title have updated before reading basePayload
-    setTimeout(trackPageview, 0);
+    setTimeout(function () {
+      // Only fire a new pageview if the URL actually changed
+      if (currentUrl !== location.href) {
+        currentUrl = location.href;
+        trackPageview();
+      }
+    }, 0);
   }
 
   var originalPushState = history.pushState;
